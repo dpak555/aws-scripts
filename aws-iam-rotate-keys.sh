@@ -145,46 +145,67 @@ while [ "$SUCCESS" = false ] && [ "$COUNT" -lt "$MAX_COUNT" ]; do
     echo "(Still waiting for the key propagation to complete ...)"
   fi
 done
-echo "Key propagation complete."
-echo "Configuring new access key for AWS CLI ..."
-aws configure set aws_access_key_id "$NEW_AWS_ACCESS_KEY_ID"
-aws configure set aws_secret_access_key "$NEW_AWS_SECRET_ACCESS_KEY"
 
-echo "Verifying the new key is in place, and that IAM access still works ..."
-revert=false
-CONFIGURED_ACCESS_KEY=$(aws configure get aws_access_key_id)
-if [ "$CONFIGURED_ACCESS_KEY" != "$NEW_AWS_ACCESS_KEY_ID" ]; then
-  >&2 echo "Something went wrong; the new key could not be taken into use."
-  revert=true
-fi
+if [ "$SUCCESS" = "true" ];
 
-# this is just to test access via AWS CLI; the content here doesn't matter (other than that we get a result)
-EXISTING_KEYS_ACCESS_IDS=($(aws iam list-access-keys --query 'AccessKeyMetadata[].AccessKeyId' --output text))
-NUM_EXISTING_KEYS=${#EXISTING_KEYS_ACCESS_IDS[@]}
-if [ ${NUM_EXISTING_KEYS} -ne 2 ]; then
-  >&2 echo "Something went wrong; the new key could not access AWS CLI."
-  revert=true
-fi
+  echo "Key propagation complete."
+  echo "Configuring new access key for AWS CLI ..."
+  aws configure set aws_access_key_id "$NEW_AWS_ACCESS_KEY_ID"
+  aws configure set aws_secret_access_key "$NEW_AWS_SECRET_ACCESS_KEY"
 
-if [ "${revert}" = "true" ]; then
-  echo "Reverting configuration to use the old keys."
-  aws configure set aws_access_key_id "$ORIGINAL_ACCESS_KEY_ID"
-  aws configure set aws_secret_access_key "$ORIGINAL_SECRET_ACCESS_KEY"
-  echo "Original configuration restored."
-  echo "Aborting."
+  echo "Verifying the new key is in place, and that IAM access still works ..."
+  revert=false
+  CONFIGURED_ACCESS_KEY=$(aws configure get aws_access_key_id)
+  if [ "$CONFIGURED_ACCESS_KEY" != "$NEW_AWS_ACCESS_KEY_ID" ]; then
+    >&2 echo "Something went wrong; the new key could not be taken into use."
+    revert=true
+  fi
+
+  # this is just to test access via AWS CLI; the content here doesn't matter (other than that we get a result)
+  EXISTING_KEYS_ACCESS_IDS=($(aws iam list-access-keys --query 'AccessKeyMetadata[].AccessKeyId' --output text))
+  NUM_EXISTING_KEYS=${#EXISTING_KEYS_ACCESS_IDS[@]}
+  if [ ${NUM_EXISTING_KEYS} -ne 2 ]; then
+    >&2 echo "Something went wrong; the new key could not access AWS CLI."
+    revert=true
+  fi
+
+  if [ "${revert}" = "true" ]; then
+    echo "Reverting configuration to use the old keys."
+    aws configure set aws_access_key_id "$ORIGINAL_ACCESS_KEY_ID"
+    aws configure set aws_secret_access_key "$ORIGINAL_SECRET_ACCESS_KEY"
+    echo "Original configuration restored."
+    echo "Aborting."
+    exit 1
+  fi
+
+  echo "Deleting the previously active access key ..."
+  aws iam delete-access-key --access-key-id "$ORIGINAL_ACCESS_KEY_ID"
+
+  echo "Verifying old access key got deleted ..."
+  # this is just to test access via AWS CLI; the content here doesn't matter (other than that we get a result)
+  EXISTING_KEYS_ACCESS_IDS=($(aws iam list-access-keys --query 'AccessKeyMetadata[].AccessKeyId' --output text))
+  NUM_EXISTING_KEYS=${#EXISTING_KEYS_ACCESS_IDS[@]}
+  if [ ${NUM_EXISTING_KEYS} -ne 1 ]; then
+    >&2 echo "Something went wrong deleting the old key, however your new key is now in use."
+  fi
+  echo
+  echo "Successfully switched from the old access key ${ORIGINAL_ACCESS_KEY_ID} to ${NEW_AWS_ACCESS_KEY_ID}"
+  echo "Process complete."
+  exit 0
+  
+else
+
+  echo "Key propagation did not complete within the allotted time. This delay is caused by AWS, and does \
+not necessarily indicate an error. However, the newly generated key cannot be safely taken into use before \
+the propagation has completed. Please wait for some time, and try to temporarily replace the Access Key ID \
+and the Secret Access Key in your ~/.aws/config file with the new key details (below). Keep the old keys safe \
+until you have confirmed that the new key works."
+  echo
+  echo "PLEASE MAKE NOTE OF THE NEW KEY DETAILS BELOW; IT HAS NOT BEEN SAVED ELSEWHERE YET!"
+  echo
+  echo "New AWS Access Key ID: ${NEW_AWS_ACCESS_KEY_ID}"
+  echo "New AWS Secret Access Key: ${NEW_AWS_SECRET_ACCESS_KEY}"
+  echo
   exit 1
+    
 fi
-
-echo "Deleting the previously active access key ..."
-aws iam delete-access-key --access-key-id "$ORIGINAL_ACCESS_KEY_ID"
-
-echo "Verifying old access key got deleted ..."
-# this is just to test access via AWS CLI; the content here doesn't matter (other than that we get a result)
-EXISTING_KEYS_ACCESS_IDS=($(aws iam list-access-keys --query 'AccessKeyMetadata[].AccessKeyId' --output text))
-NUM_EXISTING_KEYS=${#EXISTING_KEYS_ACCESS_IDS[@]}
-if [ ${NUM_EXISTING_KEYS} -ne 1 ]; then
-  >&2 echo "Something went wrong deleting the old key, however your new key is now in use."
-fi
-echo
-echo "Successfully switched from the old access key ${ORIGINAL_ACCESS_KEY_ID} to ${NEW_AWS_ACCESS_KEY_ID}"
-echo "Process complete."
