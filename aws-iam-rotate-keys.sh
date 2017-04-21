@@ -6,7 +6,7 @@ command -v aws >/dev/null 2>&1 || { echo >&2 "AWS CLI tools are required, but co
 echo "Verifying that AWS CLI has configured credentials ..."
 ORIGINAL_ACCESS_KEY_ID=$(aws configure get aws_access_key_id)
 ORIGINAL_SECRET_ACCESS_KEY=$(aws configure get aws_secret_access_key)
-if [ -z "$ORIGINAL_ACCESS_KEY_ID" ] ; then
+if [ -z "$ORIGINAL_ACCESS_KEY_ID" ]; then
   >&2 echo "ERROR: No aws_access_key_id/aws_secret_access_key configured for AWS CLI. Run 'aws configure' with your current keys."
   exit 1
 fi
@@ -146,7 +146,7 @@ while [ "$SUCCESS" = false ] && [ "$COUNT" -lt "$MAX_COUNT" ]; do
   fi
 done
 
-if [ "$SUCCESS" = "true" ];
+if [ "$SUCCESS" = "true" ]; then
 
   echo "Key propagation complete."
   echo "Configuring new access key for AWS CLI ..."
