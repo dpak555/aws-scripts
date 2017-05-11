@@ -1,4 +1,4 @@
-###AWS Utility script for unlocking (and deleting) cross-linked security groups
+### AWS Utility script for unlocking (and deleting) cross-linked security groups
 
 This script makes it reasonably easy to purge security groups which are crosslinked by `UserIdGroupPairs`, and hence cannot be deleted from AWS console, or simply with the CLI (if there are many such groups).
 
