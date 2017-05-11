@@ -1,0 +1,19 @@
+{
+  "name": "clear-locked-sgs",
+  "version": "1.0.0",
+  "description": "Project to clear locked (crosslinked) SGs",
+  "main": "index.js",
+  "directories": {
+    "test": "test"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Ville Walveranta",
+  "license": "MIT",
+  "dependencies": {
+    "aws-sdk": "^2.49.0",
+    "limiter": "^1.1.0",
+    "lodash": "^4.17.4"
+  }
+}

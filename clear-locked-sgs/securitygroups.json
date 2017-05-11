@@ -1,0 +1,7 @@
+
+** THIS FILE SHOULD CONTAIN THE OUTPUT OF 
+   aws ec2 describe-security-groups --output json > ~/securitygroups.json
+   possibly edited, or filtered with something like jmespath/jpterm, like so:
+   jpterm -o securitygroups.json securitygroups.json
+   (see details at http://jmespath.org and https://github.com/jmespath/jmespath.terminal)
+
