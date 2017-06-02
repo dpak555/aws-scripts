@@ -17,7 +17,7 @@ With this script you can follow these steps:
 
  `jpterm -o securitygroups.json securitygroups.json`
 
- Once you have the desired filter in place, exit with trl-c to write the filtered output to the output file defined with `-o`. You can also manually edit the JSON file to exclude security groups. This ensures that the script will act only on a desired subset of the security groups, no matter what.
+ Once you have the desired filter in place, exit with ctrl-c to write the filtered output to the output file defined with `-o`. You can also manually edit the JSON file to exclude security groups. This ensures that the script will act only on a desired subset of the security groups, no matter what.
  
  Configure this output file to be used by `sg-unlock.js`, then execute it with `node sg-unlock.js`.
  
