@@ -16,24 +16,17 @@ let ec2 = new AWS.EC2();
 
 let activeSourceSnapshots = new Set();
 let orphanCollector = new Set();
-let orphanCollectorArr;
-let PitSnapshotsCollectorArr;
+let orphanCollectorArr = [];
+let sourceSnapshotDetail = [];
+let sourceVolumeDetail = [];
+let PitSnapshotsCollectorArr = [];
 let DeletablePitSnapshots = [];
-
-/*
-array.sort(function(a,b){
-  // Turn your strings into dates, and then subtract them
-  // to get a value that is either negative, positive, or zero.
-  return new Date(b.date) - new Date(a.date);
-});
-*/
 
 async.parallel({
     Volumes: function(callback) {
 
       // acquire in-use volumes
-      var paramsDescVol = {
-      };
+      var paramsDescVol = {};
       ec2.describeVolumes(paramsDescVol, function(err, data) {
         if (err) console.log(err, err.stack); // an error occurred
         else {
@@ -55,7 +48,7 @@ async.parallel({
           }
         ],
         OwnerIds: [
-          "248783370565"
+          "XXXXXXXXXXXX"
         ]
       };
 
@@ -69,17 +62,11 @@ async.parallel({
 },
 function(err, results) {
 
-  // console.log(util.inspect(results.Snapshots.Snapshots, {showHidden: false, depth: null}));
-
   // iterate snapshots
   _.forEach(results.Snapshots.Snapshots, function(snapshot) {
 
-    console.log('snapshot: ' + snapshot.SnapshotId);
-
     let vol_match = false;
-    let matchedVolumeId;
     let snap_match = false;
-    let snapVols = new Set();
 
     // iterate volumes for each snapshot
     _.forEach(results.Volumes.Volumes, function(volume) {
@@ -87,50 +74,46 @@ function(err, results) {
       // see if the source volume exists; stop chaecking if a match is found
       // (there will be 0 or 1 matches)
       if (!vol_match && snapshot.VolumeId == volume.VolumeId) {
-        matchedVolumeId = snapshot.VolumeId;
         vol_match = true;
+
+        let volObject = {};
+        volObject.SnapshotId = snapshot.SnapshotId;
+        volObject.VolumeId = volume.VolumeId;
+        sourceVolumeDetail.push(volObject);
       }
 
       // find existing volumes to which this snapshot has given rise to
       if (snapshot.SnapshotId == volume.SnapshotId) {
         
-        // add to the array of volumes created from this snapshot
-        // (this is for output/reporting only)
-        snapVols.add(volume.VolumeId);
-        
         // save this snapshot id to the exclusion list for chrono snapshot wipe
         // (we don't delete snapshots that have given rise to one or more existing volumes)
         activeSourceSnapshots.add(snapshot.SnapshotId);
+
+        // store the volume-to-snapshot reference for reporting/display purposes        
+        let localObject = {};
+        localObject.SnapshotId = snapshot.SnapshotId;
+        localObject.volumes = [ volume.VolumeId ];
+
+        // extend existing volumes array if an entry exists for a snapshot already
+        if (_.find(sourceSnapshotDetail, { SnapshotId: snapshot.SnapshotId })) {
+          localObject.volumes = _.union(localObject.volumes, _.find(sourceSnapshotDetail, { 'SnapshotId': snapshot.SnapshotId  }).volumes);
+          _.extend(_.find(sourceSnapshotDetail, { SnapshotId: snapshot.SnapshotId }), localObject);
+        }
+        else {
+          // .. otherwise just add a new object (this is the first snapshot found for the volume)
+          sourceSnapshotDetail.push(localObject);
+        }
         
         // at least one snapshot was found
         snap_match = true;
       }
 
     });
-    
-    if (vol_match) {
-      console.log('SOURCE VOLUME EXISTS: ' + matchedVolumeId);
-    }
-    else {
-      console.log('source volume (' + snapshot.VolumeId + ') not present');
-    }
-
-    if (snap_match) {
-      var matchedVolumeIds = Array.from(snapVols);
-      snapVols = '';
-      console.log('THIS SNAPSHOT HAS GIVEN RISE TO THE FOLLOWING EXISTING VOLUME(S):');
-      console.log(util.inspect(matchedVolumeIds, {showHidden: false, depth: null}));
-    }
-    else {
-      console.log('No existing volumes created from this snapshot.');
-    }
 
     if (!vol_match && !snap_match) {
-      console.log('THIS IS AN ORPHAN SNAPSHOT! ORPAHNS MUST BE KILLED!!');
+      // This is an orphan snapshot (no source, no destination), and must be deleted!
       orphanCollector.add(snapshot.SnapshotId);
     }
-    
-    console.log('');
     
   });
 
@@ -138,7 +121,7 @@ function(err, results) {
   let activeSourceSnapshotsArr = Array.from(activeSourceSnapshots);
   activeSourceSnapshots = '';
 
-  // array of orphan snapshots
+  // array of orphan snapshots (these are deletable as-is)
   orphanCollectorArr = Array.from(orphanCollector);
   orphanCollector = '';
 
@@ -160,13 +143,14 @@ function(err, results) {
     PitSnapshotsCollectorArr = Array.from(PitSnapshotsCollector);
     PitSnapshotsCollector = '';
 
-    // sort the PIT snapshots for the volume, most recent first
+    // sort the point-in-time snapshots for the volume, the most recent first
     PitSnapshotsCollectorArr.sort(function(a,b) {
       return new Date(b.StartTime) - new Date(a.StartTime);
     });
 
-    // if there are more than one snapshot for the volume
-    // remove all but the first one (the items in array will be deleted)
+    // if more than one snapshot exist for a volume
+    // remove all but the most recent one
+    // (the snapshots left in the array will be deleted)
     if (PitSnapshotsCollectorArr.length > 1) {
       PitSnapshotsCollectorArr.shift();
     }
@@ -178,18 +162,29 @@ function(err, results) {
       }
     }
 
-//    if (PitSnapshotsCollectorArr.length > 0) {   
-//      console.log('Deletable snapshots (except for the latest) for volume ' + volume.VolumeId);
-//      console.log(util.inspect(PitSnapshotsCollectorArr, {showHidden: false, depth: null}));
-//    }
-      
   });
 
-  // exclude active source snapshots from the deletion list
-  _.difference(DeletablePitSnapshots, activeSourceSnapshotsArr)
+  // exclude snapshots that have given rise to existing volumes
+  let ActuallyDeletablePitSnapshots = _.difference(DeletablePitSnapshots, activeSourceSnapshotsArr)
 
-  console.log('DELETABLE PIT SNAPSHOTS (' + DeletablePitSnapshots.length + '): ' + util.inspect(DeletablePitSnapshots, {showHidden: false, depth: null}));
-  console.log(' ');
-  console.log('ORPHANZ TO KILL:\n' + util.inspect(orphanCollectorArr, {showHidden: false, depth: null}));
+  // make sure there are no duplicates (to prevent errors at deletion time)
+  DeletablePitSnapshots = _.uniq(DeletablePitSnapshots);
+  activeSourceSnapshotsArr = _.uniq(activeSourceSnapshotsArr);
+  ActuallyDeletablePitSnapshots = _.uniq(ActuallyDeletablePitSnapshots);
+  orphanCollectorArr = _.uniq(orphanCollectorArr);
 
+  console.log('ALL POINT-IN-TIME SNAPSHOTS (' + DeletablePitSnapshots.length + '):\n' + util.inspect(DeletablePitSnapshots, {showHidden: false, depth: null}));
+  console.log('\n');  
+  console.log('THESE SOURCE SNAPSHOTS (' + activeSourceSnapshotsArr.length + ') ARE EXCLUDED FROM OTHERWISE DELETABLE POINT-IN-TIME SNAPSHOTS:\n' + util.inspect(activeSourceSnapshotsArr, {showHidden: false, depth: null}));
+  console.log('\n');
+  console.log('**NOTE: all point-in-time snapshots less exclusions is NOT equal to the number of actually deletable snapshots, because for many source snapshots their source no longer exists, and hence they\'re not on the PIT list anyway!\n');
+  console.log('DELETABLE POINT-IN-TIME SNAPSHOTS AFTER EXCLUSION (' + ActuallyDeletablePitSnapshots.length + '):\n' + util.inspect(ActuallyDeletablePitSnapshots, {showHidden: false, depth: null}));
+  console.log('\n');
+  console.log('ORPHANS (CAN BE DELETED):\n' + util.inspect(orphanCollectorArr, {showHidden: false, depth: null}));
+  console.log('\n');
+  console.log('SOURCE SNAPSHOT DETAIL:\n' + util.inspect(sourceSnapshotDetail, {showHidden: false, depth: null}));
+  console.log('\n');
+  console.log('SOURCE VOLUME DETAIL:\n' + util.inspect(sourceVolumeDetail, {showHidden: false, depth: null}));
+  console.log('\n');
+  
 });
