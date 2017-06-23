@@ -1,8 +1,8 @@
 {
-  "name": "prune-snapshots",
-  "version": "1.0.0",
-  "description": "Project to prune snapshots",
-  "main": "index.js",
+  "name": "volumes-and-snapshots",
+  "version": "2.0.0",
+  "description": "Project to prune volumes and snapshots",
+  "main": "volumes-and-snapshots.js",
   "engines": {
     "node": ">=7.00"
   },
@@ -20,7 +20,7 @@
     "jsonfile": "^3.0.0",
     "limiter": "^1.1.0",
     "lodash": "^4.17.4",
-    "moment": "^2.18.1",
+    "moment-timezone": "^0.5.13",
     "slack-node": "^0.1.8"
   }
 }
