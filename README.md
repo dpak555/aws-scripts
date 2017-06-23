@@ -7,3 +7,4 @@ This repository contains non-proprietary (MIT license) utility scripts for use w
 
 * **clear-locked-sgs/** - two Node.js scripts to unlock cross-linked security groups and delete them.
 
+* **volumes-and-snapshots/** - `volumes-and-snapshots.js` and `deletor.js` scripts for pruning abandoned (detached, available) volumes.
