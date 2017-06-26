@@ -46,6 +46,8 @@ let volsExcludedByDND = [];
 let allVolsExcludedByDND = [];
 let actuallyDeletablePitSnapshots;
 
+let i, x;
+
 // save persisted state into a file
 function saveState(state, stateFile) {
   jsonfile.writeFile(stateFile, state, function(err) {
@@ -170,7 +172,7 @@ async.parallel({
           Name: 'status',
           Values: [ 'available', 'in-use' ]
         }
-      ]    
+      ]
     };
     ec2.describeVolumes(paramsDescVol, function(err, data) {
       if (err) console.log(err, err.stack); // an error occurred
@@ -186,7 +188,7 @@ async.parallel({
     let paramsDescSnap = {
       Filters: [
         {
-          Name: 'status', 
+          Name: 'status',
           Values: [
             'completed'
           ]
@@ -214,13 +216,29 @@ async.parallel({
     });
   },
 
+  Images: function(callback) {
+
+    // acquire all owned images (AMIs)
+    let paramsDescAMIs = {
+      Owners: OwnerIDs
+    };
+    ec2.describeImages(paramsDescAMIs, function(err, data) {
+      if (err) console.log(err, err.stack); // an error occurred
+      else {
+        callback(null, data);
+      }
+    });
+  }
+
 },
+
 function(err, results) {
 
 // ENABLE RAW OUTPUT FOR DEBUGGING
 // console.log(util.inspect(results.Volumes.Volumes, {showHidden: false, depth: null}));
 // console.log(util.inspect(results.Snapshots.Snapshots, {showHidden: false, depth: null}));
 // console.log(util.inspect(results.Instances.Reservations, {showHidden: false, depth: null}));
+// console.log(util.inspect(results.Images.Images, {showHidden: false, depth: null}));
 
   // acquire/create ec2 instance reference array
   let instanceDat = [];
@@ -236,6 +254,42 @@ function(err, results) {
       instanceDat.push(instanceObj);
     });
   });
+
+  // acquire/create AMI/snapshot reference array
+  let AMIRefHash = {};
+  let AMISnapExclusions = [];
+  _.forEach(results.Images.Images, function(AMI) {
+    if (_.has(AMI, 'BlockDeviceMappings') && 
+        AMI.BlockDeviceMappings.length > 0 && 
+        _.has(AMI.BlockDeviceMappings[0], 'Ebs') && 
+        _.has(AMI.BlockDeviceMappings[0].Ebs, 'SnapshotId')) {
+
+      for (i=0, x=AMI.BlockDeviceMappings.length; i<x; i++) {
+        if (_.has(AMI.BlockDeviceMappings[i], 'Ebs') && 
+            _.has(AMI.BlockDeviceMappings[i].Ebs, 'SnapshotId')) {
+
+          let AMIImageId = AMI.ImageId;
+          let AMISnapshotId = AMI.BlockDeviceMappings[i].Ebs.SnapshotId;
+          let AMIRefObj = { AMISnapshotId : AMIImageId }
+
+          // hash for reporting purposes
+          AMIRefHash[AMISnapshotId] = AMIImageId;
+
+          // array for exclusions
+          AMISnapExclusions.push(AMISnapshotId);
+
+        }
+      }
+    }
+  });
+
+  // make sure there are no duplicates
+  AMISnapExclusions = _.uniq(AMISnapExclusions);
+
+//DEBUG
+//  console.log('\nAMI id/snap hash:\n' + util.inspect(AMIRefHash, {showHidden: false, depth: null}));
+//  console.log('\n\nAMI exclusions:\n' + util.inspect(AMISnapExclusions, {showHidden: false, depth: null}));
+//DEBUG
 
   let volumeInstanceRef = [];
 
@@ -508,6 +562,9 @@ function(err, results) {
   // exclude snapshots that have given rise to existing volumes
   actuallyDeletablePitSnapshots = _.difference(deletablePitSnapshots, activeSourceSnapshotsArr);
 
+  // exclude snapshots that are associated with AMIs (they cannot be deleted unless the AMI is deregistered)
+  actuallyDeletablePitSnapshots = _.difference(deletablePitSnapshots, AMISnapExclusions);
+
   // create an array for reporting purposes of Snapshots slated for deletion that are protected by DND
   snapsActuallyExcludedByDND = _.union(snapsActuallyExcludedByDND, (_.intersection(actuallyDeletablePitSnapshots, snapsExcludedByDND)));
   snapsActuallyExcludedByDND = _.union(snapsActuallyExcludedByDND, (_.intersection(orphanSnapCollectorArr, snapsExcludedByDND)));
@@ -682,8 +739,6 @@ function(err, results) {
   console.log('\n');
 */
 //DEBUG
-
-  let i, x;
 
   // REPORT: Volumes and Snapshots slated for deletion
   let sMsg = '[BEGIN VOLUME/SNAPSHOT REPORT@ ' + timeNowNYC + ' (ET)]========================================================';

@@ -268,8 +268,8 @@ if (statesAvailable) {
     //DEBUG
 
     // combine snap state with the new deletable volumes
-    let newVolState = _.union(volStateAfter, failedVolDels);
-    let newSnapState = _.union(snapStateAfter, failedSnapDels);
+    let newVolState = _.union(failedVolDels, volStateAfter);
+    let newSnapState = _.union(failedSnapDels, snapStateAfter);
 
     // save/persist the updated states
     saveState(newVolState, volStateFile);
