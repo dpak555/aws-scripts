@@ -198,7 +198,7 @@ else
   echo "Key propagation did not complete within the allotted time. This delay is caused by AWS, and does \
 not necessarily indicate an error. However, the newly generated key cannot be safely taken into use before \
 the propagation has completed. Please wait for some time, and try to temporarily replace the Access Key ID \
-and the Secret Access Key in your ~/.aws/config file with the new key details (below). Keep the old keys safe \
+and the Secret Access Key in your ~/.aws/credentials file with the new key details (below). Keep the old keys safe \
 until you have confirmed that the new key works."
   echo
   echo "PLEASE MAKE NOTE OF THE NEW KEY DETAILS BELOW; IT HAS NOT BEEN SAVED ELSEWHERE YET!"
