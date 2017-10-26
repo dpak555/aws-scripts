@@ -60,6 +60,23 @@ if [[ "$ONEPROFILE" = "false" ]]; then
 
 else
 
+  # Check OS for some supported platforms
+  OS="`uname`"
+  case $OS in
+    'Linux')
+      OS='Linux'
+      ;;
+    'Darwin') 
+      OS='macOS'
+      ;;
+    *) 
+      OS='unknown'
+      echo
+      echo "** NOTE: THIS SCRIPT HAS NOT BEEN TESTED ON YOUR CURRENT PLATFORM."
+      echo
+      ;;
+  esac
+
   ## PREREQS PASSED; PROCEED..
 
   declare -a cred_profiles
@@ -86,45 +103,57 @@ else
 
       cred_profiles[$cred_profilecounter]=$profile_ident
 
-      # get user ARN; this should be always available
+      # get user ARN; this should be always available if the access_key_id is valid
       user_arn="$(aws sts get-caller-identity --profile "$profile_ident" --output text --query 'Arn' 2>&1)"
       if [[ "$user_arn" =~ ^arn:aws ]]; then
          cred_profile_arn[$cred_profilecounter]=$user_arn
+      elif [[ "$user_arn" =~ InvalidClientTokenId ]]; then
+         cred_profile_arn[$cred_profilecounter]="INVALID"
       else
          cred_profile_arn[$cred_profilecounter]=""
       fi
 
       # get the actual username (may be different from the arbitrary profile ident)
-      [[ "$user_arn" =~ ([^/]+)$ ]] &&
-        profile_username="${BASH_REMATCH[1]}"
-      if [[ "$profile_username" =~ error ]]; then
-        cred_profile_user[$cred_profilecounter]=""
+      if [[ "${cred_profile_arn[$cred_profilecounter]}" =~ ^arn:aws ]]; then
+        [[ "$user_arn" =~ ([^/]+)$ ]] &&
+          cred_profile_user[$cred_profilecounter]="${BASH_REMATCH[1]}"
+      elif [ "${cred_profile_arn[$cred_profilecounter]}" = "INVALID" ]; then
+          cred_profile_user[$cred_profilecounter]="CHECK CREDENTIALS!"
       else
-        cred_profile_user[$cred_profilecounter]="$profile_username"
+          cred_profile_user[$cred_profilecounter]=""
       fi
 
       # get access keys & their ages for the profile
-      key_status_array=(`aws iam list-access-keys --profile "$profile_ident" --output json --query AccessKeyMetadata[*].[Status,CreateDate,AccessKeyId] | grep -A2 ctive | awk -F\" '{print $2}'`)
       key_status_accumulator=""
 
-      s_no=0
-      for s in ${key_status_array[@]}; do
-        if [[ "$s" == "Active" || "$s" == "Inactive" ]]; then
-          
-          if [ "$s" == "Active" ]; then
-            statusword="  Active"
-          else
-            statusword="Inactive"
-          fi
+      if [ ${cred_profile_arn[$cred_profilecounter]} != "INVALID" ]; then
 
-          let "s_no++"
-          kcd=`echo ${key_status_array[$s_no]} | sed 's/T/ /' | awk '{print $1}'`
-          let  keypos=${s_no}+1
-          key_status_accumulator="   ${statusword} key ${key_status_array[$keypos]} is $(((`date -jf %Y-%m-%d $TODAY +%s` - `date -jf %Y-%m-%d $kcd +%s`)/86400)) days old\n${key_status_accumulator}"
-        else
-          let "s_no++"
-        fi
-      done
+        key_status_array=(`aws iam list-access-keys --profile "$profile_ident" --output json --query AccessKeyMetadata[*].[Status,CreateDate,AccessKeyId] | grep -A2 ctive | awk -F\" '{print $2}'`)
+   
+        s_no=0
+        for s in ${key_status_array[@]}; do
+          if [[ "$s" == "Active" || "$s" == "Inactive" ]]; then
+            
+            if [ "$s" == "Active" ]; then
+              statusword="  Active"
+            else
+              statusword="Inactive"
+            fi
+
+            let "s_no++"
+            kcd=`echo ${key_status_array[$s_no]} | sed 's/T/ /' | awk '{print $1}'`
+            let  keypos=${s_no}+1
+            if [ "$OS" = "macOS" ]; then
+              key_status_accumulator="   ${statusword} key ${key_status_array[$keypos]} is $(((`date -jf %Y-%m-%d $TODAY +%s` - `date -jf %Y-%m-%d $kcd +%s`)/86400)) days old\n${key_status_accumulator}"
+            else
+              key_status_accumulator="   ${statusword} key ${key_status_array[$keypos]} is $(((`date -d "$TODAY" "+%s"` - `date -d "$kcd" "+%s"`)/86400)) days old\n${key_status_accumulator}"
+            fi
+          else
+            let "s_no++"
+          fi
+        done
+
+      fi
       cred_profile_keys[$cred_profilecounter]=$key_status_accumulator
 
 ## DEBUG
@@ -150,8 +179,12 @@ else
   ITER=1
   for i in "${cred_profiles[@]}"
   do
-    echo "${ITER}: $i (${cred_profile_user[$SELECTR]})"
-    printf "${cred_profile_keys[$SELECTR]}"
+    if [ "${cred_profile_arn[$SELECTR]}" = "INVALID" ]; then
+      echo "X: $i (${cred_profile_user[$SELECTR]})"
+    else
+      echo "${ITER}: $i (${cred_profile_user[$SELECTR]})"
+      printf "${cred_profile_keys[$SELECTR]}"
+    fi
     echo
     let ITER=${ITER}+1
     let SELECTR=${SELECTR}+1
@@ -176,6 +209,7 @@ else
         if [[ $actual_selprofile -ge $profilecount ||
            $actual_selprofile -lt 0 ]]; then
           # a selection outside of the existing range was specified
+          echo
           echo "There is no profile '${selprofile}'."
           echo
           exit 1
@@ -183,12 +217,22 @@ else
 
         # a base profile was selected
         if [[ $selprofile =~ ^[[:digit:]]+$ ]]; then 
-          echo "SELECTED PROFILE: ${cred_profiles[$actual_selprofile]}"
-          final_selection="${cred_profiles[$actual_selprofile]}"
-          final_selection_name="${cred_profile_user[$actual_selprofile]}"
-          echo "SELECTED USER: $final_selection_name"
+
+          if [ "${cred_profile_arn[$actual_selprofile]}" = "INVALID" ]; then
+            echo
+            echo "PROFILE \"${cred_profiles[$actual_selprofile]}\" HAS INVALID ACCESS KEYS. Cannot proceed."
+            echo
+            exit 1
+          else
+            echo
+            echo "SELECTED PROFILE: ${cred_profiles[$actual_selprofile]}"
+            final_selection="${cred_profiles[$actual_selprofile]}"
+            final_selection_name="${cred_profile_user[$actual_selprofile]}"
+            echo "SELECTED USER: $final_selection_name"
+          fi
         else
           # non-acceptable characters were present in the selection
+            echo
             echo "There is no profile '${selprofile}'."
             echo
             exit 1             
@@ -196,6 +240,7 @@ else
           
       else
         # no numeric part in selection
+        echo
         echo "There is no profile '${selprofile}'."
         echo
         exit 1
