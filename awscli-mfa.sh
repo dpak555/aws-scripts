@@ -71,6 +71,29 @@ if [[ "$ONEPROFILE" = "false" ]]; then
 
 else
 
+  # Check OS for some supported platforms
+  OS="`uname`"
+  case $OS in
+    'Linux')
+      OS='Linux'
+      ;;
+    'Darwin') 
+      OS='macOS'
+      ;;
+    *) 
+      OS='unknown'
+      echo
+      echo "** NOTE: THIS SCRIPT HAS NOT BEEN TESTED ON YOUR CURRENT PLATFORM."
+      echo
+      ;;
+  esac
+
+  # make sure ~/.aws/credentials has a linefeed in the end
+  c=$(tail -c 1 "$CREDFILE")
+  if [ "$c" != "" ]; then
+    echo "" >> "$CREDFILE"
+  fi
+
 	## PREREQS PASSED; PROCEED..
 
 	declare -a cred_profiles
@@ -385,10 +408,29 @@ else
 	echo "Region is set to: $get_region"
 	echo "Output format is set to: $get_output"
 	echo
-	echo "Execute the following in Terminal to activate this profile:"
-	echo "export AWS_PROFILE=${final_selection}"
-	echo -n "export AWS_PROFILE=${final_selection}" | pbcopy
-	echo "(the activation command is now on your clipboard -- just paste in Terminal, and press [ENTER])"
+	if [ "$OS" = "macOS" ]; then
+		echo "Execute the following in Terminal to activate this profile:"
+		echo
+		echo "export AWS_PROFILE=${final_selection}"
+		echo
+		echo -n "export AWS_PROFILE=${final_selection}" | pbcopy
+		echo "(the activation command is now on your clipboard -- just paste in Terminal, and press [ENTER])"
+	elif [ "$OS" = "Linux" ]; then
+		echo "Execute the following on the command line to activate this profile:"
+		echo
+		echo "export AWS_PROFILE=${final_selection}"
+		echo
+		if exists xclip ; then
+			echo -n "export AWS_PROFILE=${final_selection}" | xclip -i
+			echo "(xclip found; the activation command is now on your X PRIMARY clipboard -- just paste on the command line, and press [ENTER])"
+		else
+			echo "If you're using an X GUI on Linux, install 'xclip' to have the activation command copied to the clipboard automatically."
+		fi
+	else
+		echo "Execute the following on the command line to activate this profile:"
+		echo
+		echo "export AWS_PROFILE=${final_selection}" 
+	fi
 	echo
 
 fi
