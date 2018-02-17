@@ -76,6 +76,21 @@ if [[ "$ONEPROFILE" == "false" ]]; then
 
 else
 
+	# get default region and output format (since at least one profile should exist at this point)
+	default_region=$(aws --profile default configure get region)
+	default_output=$(aws --profile default configure get output)
+
+	if [[ "$default_region" == "" ]]; then
+		echo
+		echo -e "DEFAULT REGION HAS NOT BEEN CONFIGURED.\nPlease set the default region in '~/.aws/config', for example, like so:\naws configure set region \"us-east-1\""
+		echo
+		exit 1
+	fi
+
+	if [[ "$default_output" == "" ]]; then
+		aws configure set output "table"
+	fi
+
 	# Check OS for some supported platforms
 	OS="`uname`"
 	case $OS in
@@ -113,7 +128,7 @@ else
 	declare -a mfa_profile_status
 	cred_profilecounter=0
 
-	echo "Please wait..."
+	echo -n "Please wait"
 
 	# read the credentials file
 	while IFS='' read -r line || [[ -n "$line" ]]; do
@@ -210,8 +225,10 @@ else
 					echo "MFA PROFILE IDENT: ${mfa_profiles[$cred_profilecounter]} (${mfa_profile_status[$cred_profilecounter]})"
 				fi
 				echo
-			fi
 			## END DEBUG
+			else
+				echo -n "."
+			fi
 
 			# erase variables & increase iterator for the next iteration
 			mfa_arn=""
@@ -228,6 +245,8 @@ else
 	done < $CREDFILE
 
 	# create the profile selections
+	echo
+	echo
 	echo "AVAILABLE AWS PROFILES:"
 	echo
 	SELECTR=0
@@ -252,10 +271,10 @@ else
 		let SELECTR=${SELECTR}+1
 	done
 
-	# this is used to trigger MFA request for a MFA profile
+	# this is used to determine whether to trigger a MFA request for a MFA profile
 	active_mfa="false"
 
-	# this is used to print MFA questions/details
+	# this is used to determine whether to print MFA questions/details
 	mfaprofile="false"
 
 	# prompt for profile selection
@@ -291,13 +310,18 @@ else
 		       ( "${mfa_profile_status[$actual_selprofile]}" == "OK" ||
 	  			 "${mfa_profile_status[$actual_selprofile]}" == "LIMITED" ) ]]; then
 
-				echo "SELECTED MFA PROFILE: ${mfa_profiles[$actual_selprofile]}"
+				# get the parent profile name
+				# transpose selection (starting from 1) to array index (starting from 0)
+				mfa_parent_profile_ident="${cred_profiles[$actual_selprofile]}"
+
 				final_selection="${mfa_profiles[$actual_selprofile]}"
+				echo "SELECTED MFA PROFILE: ${final_selection} (for base profile '${mfa_parent_profile_ident}')"
 
-				# this is used to print MFA questions/details
-		        mfaprofile="true"
+				# this is used to determine whether to print MFA questions/details
+				mfaprofile="true"
 
-        		active_mfa="true"
+		        # this is used to determine whether to trigger a MFA request for a MFA profile
+				active_mfa="true"
 
 		    elif [[ "$selprofile_mfa_check" != "" &&
 		            "${mfa_profile_status[$actual_selprofile]}" == "" ]]; then
@@ -332,11 +356,11 @@ else
 		exit 1
 	fi
 
+	# this is a MFA request (a MFA ARN exists but MFA is not active)
 	if [[ "${mfa_arns[$actual_selprofile]}" != "" &&
 		  "$active_mfa" == "false" ]]; then
 
-		# prompt for the MFA code since MFA has been configured for this profile (MFA ARN is avialable),
-		# and since the selection is not an active MFA profile
+		# prompt for the MFA code
 		echo
 		echo -e "Enter the current MFA one time pass code for profile '${cred_profiles[$actual_selprofile]}' to start/renew the MFA session,"
 		echo "or leave empty (just press [ENTER]) to use the selected profile without the MFA."
@@ -352,10 +376,9 @@ else
 			fi
 		done
 
-	elif [[ "$active_mfa" == "false" ]]; then
-		# no MFA configured (no MFA ARN); print a notice
+	elif [[ "$active_mfa" == "false" ]]; then   # no MFA configured (no MFA ARN); print a notice
 		
-		# this is used to print MFA questions/details
+		# this is used to determine whether to print MFA questions/details
 		mfaprofile="false"
 
 		# reset entered MFA code (just to be safe)
@@ -387,7 +410,7 @@ else
 			echo
 			exit 1
 		else
-			# this is used to print MFA questions/details
+			# this is used to determine whether to print MFA questions/details
 			mfaprofile="true"
 
 			## DEBUG
@@ -403,36 +426,6 @@ else
 			`aws --profile $AWS_2AUTH_PROFILE configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"`
 			`aws --profile $AWS_2AUTH_PROFILE configure set aws_session_token "$AWS_SESSION_TOKEN"`
 
-			# get the current region and output format for the region (have they been set?)
-			get_region=$(aws --profile $AWS_2AUTH_PROFILE configure get region)
-			get_output=$(aws --profile $AWS_2AUTH_PROFILE configure get output)
-
-			# if the region and output format were not set, use the base profile values
-			# for the MFA profiles (or deafults, if not set for the base, either)
-			if [[ "${get_region}" == "" ]]; then
-				if [[ ${profile_region[$actual_selprofile]} != "" ]]; then
-					set_new_region=${profile_region[$actual_selprofile]}
-					echo "Default region was not set for the MFA profile. It was set to same ('$set_new_region') as the base profile."
-				else
-					set_new_region="us-east-1"
-					echo "Default region was not set for the MFA profile. It was set to the default 'us-east-1')."
-				fi
-
-				`aws --profile $AWS_2AUTH_PROFILE configure set region "${set_new_region}"`
-			fi
-
-			if [ "${get_output}" == "" ]; then
-				if [ ${profile_output[$actual_selprofile]} != "" ]; then
-					set_new_output=${profile_output[$actual_selprofile]}
-					echo "Default output format was not set for the MFA profile. It was set to same ('$set_new_output') as the base profile."
-				else
-					set_new_region="json"
-					echo "Default output format was not set for the MFA profile. It was set to the default 'json')."
-				fi
-
-				`aws --profile $AWS_2AUTH_PROFILE configure set output "${set_new_output}"`
-			fi
-
 			# Make sure the final selection profile name has '-mfasession' suffix
 			# (it's not present when going from base profile to MFA profile)
 			if ! [[ "$final_selection" =~ -mfasession$ ]]; then
@@ -442,15 +435,45 @@ else
 
 	elif [[ "$active_mfa" == "false" ]]; then
 		
-		# this is used to print MFA questions/details
+		# this is used to determine whether to print MFA questions/details
 		mfaprofile="false"
 	fi
 
-	# get region and output format for display (even when not entering MFA code)
+	# get region and output format for the selected profile
 	get_region=$(aws --profile $final_selection configure get region)
 	get_output=$(aws --profile $final_selection configure get output)
 
-# todo : get base profile region, output if not set for the MFA profile
+	# If the region and output format have not been set for this profile, set them 
+	# For the parent/base profiles, use defaults; for MFA profiles use first the base/parent settings if present, then the defaults
+	if [[ "${get_region}" == "" ]]; then
+		# retrieve parent profile region if an MFA profie
+		if [[ "${profile_region[$actual_selprofile]}" != "" &&
+			  "${mfaprofile}" == "true" ]]; then
+			set_new_region=${profile_region[$actual_selprofile]}
+			echo "Region had not been configured for the selected MFA profile; it has been set to same as the parent profile ('$set_new_region')."
+		fi
+		if [[ "${set_new_region}" == "" ]]; then
+			set_new_region=${default_region}
+			echo "Region had not been configured for the selected profile; it has been set to the default region ('${default_region}')."
+		fi
+
+		`aws --profile $final_selection configure set region "${set_new_region}"`
+	fi
+
+	if [ "${get_output}" == "" ]; then
+		# retrieve parent profile output format if an MFA profile
+		if [[ "${profile_output[$actual_selprofile]}" != "" &&
+		      "${mfaprofile}" == "true" ]]; then
+			set_new_output=${profile_output[$actual_selprofile]}
+			echo "Output format had not been configured for the selected MFA profile; it has been set to same as the parent profile ('$set_new_output')."
+		fi
+		if [[ "${set_new_output}" == "" ]]; then
+			set_new_output=${default_output}
+			echo "Output format had not been configured for the selected profile; it has been set to the default output format ('${default_output}')."
+		fi
+
+		`aws --profile $final_selection configure set output "${set_new_output}"`
+	fi
 
 	AWS_ACCESS_KEY_ID=$(aws --profile $final_selection configure get aws_access_key_id)
 	AWS_SECRET_ACCESS_KEY=$(aws --profile $final_selection configure get aws_secret_access_key)
