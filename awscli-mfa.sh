@@ -1,5 +1,9 @@
 #!/bin/bash
 
+DEBUG="false"
+# uncomment below to enable the debug output
+#DEBUG="true"
+
 # Set the session length in seconds below;
 # note that this only sets the client-side
 # validity of the MFA session token; 
@@ -51,8 +55,10 @@ elif [ ! -f ~/.aws/credentials ]; then
 	exit 1
 fi
 
+# defined the standard location of the AWS credentials file
 CREDFILE=~/.aws/credentials
-# check that at least one profile is configured
+
+# read the credentials file and make sure that at least one profile is configured
 ONEPROFILE="false"
 while IFS='' read -r line || [[ -n "$line" ]]; do
 	[[ "$line" =~ ^\[(.*)\].* ]] &&
@@ -63,39 +69,39 @@ while IFS='' read -r line || [[ -n "$line" ]]; do
 		fi 
 done < $CREDFILE
 
-
-if [[ "$ONEPROFILE" = "false" ]]; then
+if [[ "$ONEPROFILE" == "false" ]]; then
 	echo
 	echo -e "NO CONFIGURED AWS PROFILES FOUND.\nPlease make sure you have '~/.aws/config' (profile configurations),\nand '~/.aws/credentials' (profile credentials) files, and at least\none configured profile. For more info, see AWS CLI documentation at:\nhttp://docs.aws.amazon.com/cli/latest/userguide/cli-config-files.html"
 	echo
 
 else
 
-  # Check OS for some supported platforms
-  OS="`uname`"
-  case $OS in
-    'Linux')
-      OS='Linux'
-      ;;
-    'Darwin') 
-      OS='macOS'
-      ;;
-    *) 
-      OS='unknown'
-      echo
-      echo "** NOTE: THIS SCRIPT HAS NOT BEEN TESTED ON YOUR CURRENT PLATFORM."
-      echo
-      ;;
-  esac
+	# Check OS for some supported platforms
+	OS="`uname`"
+	case $OS in
+		'Linux')
+			OS='Linux'
+			;;
+		'Darwin') 
+			OS='macOS'
+			;;
+		*) 
+			OS='unknown'
+			echo
+			echo "** NOTE: THIS SCRIPT HAS NOT BEEN TESTED ON YOUR CURRENT PLATFORM."
+			echo
+			;;
+	esac
 
-  # make sure ~/.aws/credentials has a linefeed in the end
-  c=$(tail -c 1 "$CREDFILE")
-  if [ "$c" != "" ]; then
-    echo "" >> "$CREDFILE"
-  fi
+	# make sure ~/.aws/credentials has a linefeed in the end
+	c=$(tail -c 1 "$CREDFILE")
+	if [ "$c" != "" ]; then
+		echo "" >> "$CREDFILE"
+	fi
 
 	## PREREQS PASSED; PROCEED..
 
+	# declare the arrays
 	declare -a cred_profiles
 	declare -a cred_profile_status
 	declare -a cred_profile_user
@@ -109,29 +115,36 @@ else
 
 	echo "Please wait..."
 
+	# read the credentials file
 	while IFS='' read -r line || [[ -n "$line" ]]; do
 		[[ "$line" =~ ^\[(.*)\].* ]] &&
 		profile_ident=${BASH_REMATCH[1]}
 
 		# only process if profile identifier is present,
-		# and if it's not a mfasession profile
+		# and if it's not a mfasession profile 
+		# (mfasession profiles have '-mfasession' postfix)
 		if [ "$profile_ident" != "" ] &&
 	     ! [[ "$profile_ident" =~ -mfasession$ ]]; then
 
+	     	# store this profile ident
 	       	cred_profiles[$cred_profilecounter]=$profile_ident
 
+	       	# store this profile region and output format
 	       	profile_region[$cred_profilecounter]=$(aws --profile $profile_ident configure get region)
 	       	profile_output[$cred_profilecounter]=$(aws --profile $profile_ident configure get output)
 
-	       	# get user ARN; this should be always available
+	       	# get the user ARN; this should be always
+	       	# available for valid profiles
 	        user_arn="$(aws sts get-caller-identity --profile $profile_ident --output text --query 'Arn' 2>&1)"
 			if [[ "$user_arn" =~ ^arn:aws ]]; then
 				cred_profile_arn[$cred_profilecounter]=$user_arn
 			else
+				# must be a bad profile
 				cred_profile_arn[$cred_profilecounter]=""
 			fi
 
-			# get the actual username (may be different from the arbitrary profile ident)
+			# get the actual username
+			# (may be different from the arbitrary profile ident)
 	        [[ "$user_arn" =~ ([^/]+)$ ]] &&
 		    profile_username="${BASH_REMATCH[1]}"
 			if [[ "$profile_username" =~ error ]]; then
@@ -140,15 +153,18 @@ else
 				cred_profile_user[$cred_profilecounter]="$profile_username"
 			fi
 
-			# find existing MFA sessions for the current profile
+			# find the existing MFA sessions for the current profile
+			# (profile with profilename + "-mfasession" postfix)
 			while IFS='' read -r line || [[ -n "$line" ]]; do
 				[[ "$line" =~ \[(${profile_ident}-mfasession)\]$ ]] &&
 				mfa_profile_ident="${BASH_REMATCH[1]}"
 			done < $CREDFILE
 			mfa_profiles[$cred_profilecounter]="$mfa_profile_ident"
 
-			# check to see if this profile has access
-			# (this is not 100% as it depends on IAM access)
+			# check to see if this profile has access currently
+			# (this is not 100% as it depends on the defined IAM access;
+			# however if MFA enforcement is set, this should produce
+			# a reliable result)
 			profile_check="$(aws iam get-user --output text --query "User.Arn" --profile $profile_ident 2>&1)"
 			if [[ "$profile_check" =~ ^arn:aws ]]; then
 				cred_profile_status[$cred_profilecounter]="OK"
@@ -157,6 +173,8 @@ else
 			fi
 
 			# get MFA ARN if available
+			# (obviously not available if a MFA device
+			# isn't configured for the profile)
 			mfa_arn="$(aws iam list-virtual-mfa-devices --profile $profile_ident --output text --query "VirtualMFADevices[?User.Arn=='${user_arn}'].SerialNumber" 2>&1)"
 			if [[ "$mfa_arn" =~ ^arn:aws ]]; then
 				mfa_arns[$cred_profilecounter]="$mfa_arn"
@@ -165,7 +183,9 @@ else
 			fi
 
 			# if existing MFA profile was found, check its status
-			# (this is not 100% as it depends on IAM access)
+			# (this is not 100% as it depends on the defined IAM access;
+			# however if MFA enforcement is set, this should produce
+			# a reliable result)
 			if [ "$mfa_profile_ident" != "" ]; then
 				mfa_profile_check="$(aws iam get-user --output text --query "User.Arn" --profile $mfa_profile_ident 2>&1)"
 				if [[ "$mfa_profile_check" =~ ^arn:aws ]]; then
@@ -177,17 +197,21 @@ else
 				fi
 			fi
 
-## DEBUG
-#			echo "PROFILE IDENT: $profile_ident (${cred_profile_status[$cred_profilecounter]})"
-#			echo "USER ARN: ${cred_profile_arn[$cred_profilecounter]}"
-#			echo "USER NAME: ${cred_profile_user[$cred_profilecounter]}"
-#			echo "MFA ARN: ${mfa_arns[$cred_profilecounter]}"
-#			if [ "${mfa_profiles[$cred_profilecounter]}" == "" ]; then
-#				echo "MFA PROFILE IDENT:"
-#			else
-#				echo "MFA PROFILE IDENT: ${mfa_profiles[$cred_profilecounter]} (${mfa_profile_status[$cred_profilecounter]})"
-#			fi
-#			echo
+			## DEBUG (enable with DEBUG="true" on top of the file)
+			if [ "$DEBUG" == "true" ]; then
+
+				echo "PROFILE IDENT: $profile_ident (${cred_profile_status[$cred_profilecounter]})"
+				echo "USER ARN: ${cred_profile_arn[$cred_profilecounter]}"
+				echo "USER NAME: ${cred_profile_user[$cred_profilecounter]}"
+				echo "MFA ARN: ${mfa_arns[$cred_profilecounter]}"
+				if [ "${mfa_profiles[$cred_profilecounter]}" == "" ]; then
+					echo "MFA PROFILE IDENT:"
+				else
+					echo "MFA PROFILE IDENT: ${mfa_profiles[$cred_profilecounter]} (${mfa_profile_status[$cred_profilecounter]})"
+				fi
+				echo
+			fi
+			## END DEBUG
 
 			# erase variables & increase iterator for the next iteration
 			mfa_arn=""
@@ -203,7 +227,7 @@ else
 	    fi
 	done < $CREDFILE
 
-	# create profile selections
+	# create the profile selections
 	echo "AVAILABLE AWS PROFILES:"
 	echo
 	SELECTR=0
@@ -218,8 +242,8 @@ else
 
 		echo "${ITER}: $i (${cred_profile_user[$SELECTR]}${mfa_notify})"
 
-		if [ "${mfa_profile_status[$SELECTR]}" = "OK" ] ||
-		   [ "${mfa_profile_status[$SELECTR]}" = "LIMITED" ]; then
+		if [[ "${mfa_profile_status[$SELECTR]}" == "OK" ]] ||
+		   [[ "${mfa_profile_status[$SELECTR]}" == "LIMITED" ]]; then
 			echo "${ITER}m: $i MFA profile in ${mfa_profile_status[$SELECTR]} status"
 		fi
 
@@ -228,13 +252,19 @@ else
 		let SELECTR=${SELECTR}+1
 	done
 
+	# this is used to trigger MFA request for a MFA profile
+	active_mfa="false"
+
+	# this is used to print MFA questions/details
+	mfaprofile="false"
+
 	# prompt for profile selection
 	printf "SELECT A PROFILE BY THE ID: "
 	read -r selprofile
 
 	# process the selection
 	if [ "$selprofile" != "" ]; then
-		#capture the numeric part of the selection
+		# capture the numeric part of the selection
 	    [[ $selprofile =~ ^([[:digit:]]+) ]] &&
 	    selprofile_check="${BASH_REMATCH[1]}"
 	    if [ "$selprofile_check" != "" ]; then
@@ -256,15 +286,21 @@ else
 		    [[ $selprofile =~ ^[[:digit:]]+(m)$ ]] &&
 	    	selprofile_mfa_check="${BASH_REMATCH[1]}"
 
+	    	# if this is an MFA profile, it must be in OK or LIMITED status to select
 		    if [[ "$selprofile_mfa_check" != "" &&
-		       ( "${mfa_profile_status[$actual_selprofile]}" = "OK" ||
-	  			 "${mfa_profile_status[$actual_selprofile]}" = "LIMITED" ) ]]; then
-				
+		       ( "${mfa_profile_status[$actual_selprofile]}" == "OK" ||
+	  			 "${mfa_profile_status[$actual_selprofile]}" == "LIMITED" ) ]]; then
+
 				echo "SELECTED MFA PROFILE: ${mfa_profiles[$actual_selprofile]}"
 				final_selection="${mfa_profiles[$actual_selprofile]}"
 
+				# this is used to print MFA questions/details
+		        mfaprofile="true"
+
+        		active_mfa="true"
+
 		    elif [[ "$selprofile_mfa_check" != "" &&
-		            "${mfa_profile_status[$actual_selprofile]}" = "" ]]; then
+		            "${mfa_profile_status[$actual_selprofile]}" == "" ]]; then
 		        # mfa ('m') profile was selected for a profile that no mfa profile exists
 	    		echo "There is no profile '${selprofile}'."
 	    		echo
@@ -296,11 +332,15 @@ else
 		exit 1
 	fi
 
-	if [ "${mfa_arns[$actual_selprofile]}" != "" ]; then
-		mfaprofile="true"
-		# prompt for the MFA code since MFA has been configured for this profile
+	if [[ "${mfa_arns[$actual_selprofile]}" != "" &&
+		  "$active_mfa" == "false" ]]; then
+
+		# prompt for the MFA code since MFA has been configured for this profile (MFA ARN is avialable),
+		# and since the selection is not an active MFA profile
 		echo
-		echo -e "Enter the current MFA one time pass code for profile '${cred_profiles[$actual_selprofile]}' to start/renew an MFA session,\nor leave empty (just press [ENTER]) to use the selected profile as-is."
+		echo -e "Enter the current MFA one time pass code for profile '${cred_profiles[$actual_selprofile]}' to start/renew the MFA session,"
+		echo "or leave empty (just press [ENTER]) to use the selected profile without the MFA."
+		
 		while :
 		do
   			read mfacode
@@ -312,23 +352,27 @@ else
 			fi
 		done
 
-	else
+	elif [[ "$active_mfa" == "false" ]]; then
+		# no MFA configured (no MFA ARN); print a notice
+		
+		# this is used to print MFA questions/details
 		mfaprofile="false"
+
+		# reset entered MFA code (just to be safe)
 		mfacode=""
 		echo
 		echo -e "MFA has not been set up for this profile."
 	fi
 
-	if [ "$mfacode" != "" ]; then
-
-		# init the MFA session (request a MFA session token)
+	if [[ "$mfacode" != "" ]]; then
+		# init an MFA session (request an MFA session token)
 		AWS_USER_PROFILE=${cred_profiles[$actual_selprofile]}
 		AWS_2AUTH_PROFILE=${AWS_USER_PROFILE}-mfasession
 		ARN_OF_MFA=${mfa_arns[$actual_selprofile]}
 		MFA_TOKEN_CODE=$mfacode
 		DURATION=$MFA_SESSION_LENGTH_IN_SECONDS
 
-		echo "GETTING AN MFA SESSION TOKEN FOR THE PROFILE: $AWS_USER_PROFILE"
+		echo "NOW GETTING THE MFA SESSION TOKEN FOR THE PROFILE: $AWS_USER_PROFILE"
 
 		read AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN <<< \
 		$( aws --profile $AWS_USER_PROFILE sts get-session-token \
@@ -342,62 +386,80 @@ else
 			echo "Could not initialize the requested MFA session."
 			echo
 			exit 1
-		fi
+		else
+			# this is used to print MFA questions/details
+			mfaprofile="true"
 
-## DEBUG
-#		echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID"
-#		echo "AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY"
-#		echo "AWS_SESSION_TOKEN: $AWS_SESSION_TOKEN"
+			## DEBUG
+			if [ "$DEBUG" == "true" ]; then
+				echo "AWS_ACCESS_KEY_ID: $AWS_ACCESS_KEY_ID"
+				echo "AWS_SECRET_ACCESS_KEY: $AWS_SECRET_ACCESS_KEY"
+				echo "AWS_SESSION_TOKEN: $AWS_SESSION_TOKEN"
+			fi
+			## END DEBUG
 
-		# set the temp aws_access_key_id, aws_secret_access_key, and aws_session_token for the MFA profile
-		`aws --profile $AWS_2AUTH_PROFILE configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"`
-		`aws --profile $AWS_2AUTH_PROFILE configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"`
-		`aws --profile $AWS_2AUTH_PROFILE configure set aws_session_token "$AWS_SESSION_TOKEN"`
+			# set the temp aws_access_key_id, aws_secret_access_key, and aws_session_token for the MFA profile
+			`aws --profile $AWS_2AUTH_PROFILE configure set aws_access_key_id "$AWS_ACCESS_KEY_ID"`
+			`aws --profile $AWS_2AUTH_PROFILE configure set aws_secret_access_key "$AWS_SECRET_ACCESS_KEY"`
+			`aws --profile $AWS_2AUTH_PROFILE configure set aws_session_token "$AWS_SESSION_TOKEN"`
 
-		# get the current region and output for the region (are they set?)
-		get_region=$(aws --profile $AWS_2AUTH_PROFILE configure get region)
-		get_output=$(aws --profile $AWS_2AUTH_PROFILE configure get output)
+			# get the current region and output format for the region (have they been set?)
+			get_region=$(aws --profile $AWS_2AUTH_PROFILE configure get region)
+			get_output=$(aws --profile $AWS_2AUTH_PROFILE configure get output)
 
-		# if the region and output were not set, use the base profile values for 
-		# the MFA profiles (or deafults, if not set for the base, either)
-		if [ "${get_region}" = "" ]; then
-			if [ ${profile_region[$actual_selprofile]} != "" ]; then
-				set_new_region=${profile_region[$actual_selprofile]}
-				echo "Default region was not set for the MFA profile. It was set to same ('$set_new_region') as the base profile."
-			else
-				set_new_region="us-east-1"
-				echo "Default region was not set for the MFA profile. It was set to the default 'us-east-1')."
+			# if the region and output format were not set, use the base profile values
+			# for the MFA profiles (or deafults, if not set for the base, either)
+			if [[ "${get_region}" == "" ]]; then
+				if [[ ${profile_region[$actual_selprofile]} != "" ]]; then
+					set_new_region=${profile_region[$actual_selprofile]}
+					echo "Default region was not set for the MFA profile. It was set to same ('$set_new_region') as the base profile."
+				else
+					set_new_region="us-east-1"
+					echo "Default region was not set for the MFA profile. It was set to the default 'us-east-1')."
+				fi
+
+				`aws --profile $AWS_2AUTH_PROFILE configure set region "${set_new_region}"`
 			fi
 
-			`aws --profile $AWS_2AUTH_PROFILE configure set region "${set_new_region}"`
-		fi
+			if [ "${get_output}" == "" ]; then
+				if [ ${profile_output[$actual_selprofile]} != "" ]; then
+					set_new_output=${profile_output[$actual_selprofile]}
+					echo "Default output format was not set for the MFA profile. It was set to same ('$set_new_output') as the base profile."
+				else
+					set_new_region="json"
+					echo "Default output format was not set for the MFA profile. It was set to the default 'json')."
+				fi
 
-		if [ "${get_output}" = "" ]; then
-			if [ ${profile_output[$actual_selprofile]} != "" ]; then
-				set_new_output=${profile_output[$actual_selprofile]}
-				echo "Default output format was not set for the MFA profile. It was set to same ('$set_new_output') as the base profile."
-			else
-				set_new_region="json"
-				echo "Default output format was not set for the MFA profile. It was set to the default 'json')."
+				`aws --profile $AWS_2AUTH_PROFILE configure set output "${set_new_output}"`
 			fi
 
-			`aws --profile $AWS_2AUTH_PROFILE configure set output "${set_new_output}"`
+			# Make sure the final selection profile name has '-mfasession' suffix
+			# (it's not present when going from base profile to MFA profile)
+			if ! [[ "$final_selection" =~ -mfasession$ ]]; then
+				final_selection="${final_selection}-mfasession"
+			fi
 		fi
 
-		# Make sure the final selection profile name has '-mfasession' suffix
-		# (it's not present when going from base profile to MFA profile)
-		if ! [[ "$final_selection" =~ -mfasession$ ]]; then
-			final_selection="${final_selection}-mfasession"
-		fi
-
+	elif [[ "$active_mfa" == "false" ]]; then
+		
+		# this is used to print MFA questions/details
+		mfaprofile="false"
 	fi
 
 	# get region and output format for display (even when not entering MFA code)
 	get_region=$(aws --profile $final_selection configure get region)
 	get_output=$(aws --profile $final_selection configure get output)
 
+# todo : get base profile region, output if not set for the MFA profile
+
+	AWS_ACCESS_KEY_ID=$(aws --profile $final_selection configure get aws_access_key_id)
+	AWS_SECRET_ACCESS_KEY=$(aws --profile $final_selection configure get aws_secret_access_key)
+	AWS_SESSION_TOKEN=$(aws --profile $final_selection configure get aws_session_token)
+
 	echo
-	if [[ "$mfaprofile" = "true" && "$mfacode" != "" ]]; then
+	echo "========================================================================"
+	echo
+	if [[ "$mfaprofile" == "true" ]]; then
 		echo "MFA profile name: '${final_selection}'"
 		echo
 	else
@@ -408,28 +470,92 @@ else
 	echo "Region is set to: $get_region"
 	echo "Output format is set to: $get_output"
 	echo
-	if [ "$OS" = "macOS" ]; then
-		echo "Execute the following in Terminal to activate this profile:"
+
+	# print env export secrets?
+	secrets_out="false"
+	read -p "Do you want to export the selected profile's secrets to the environment (for s3cmd, etc)? - y[N] " -n 1 -r
+	if [[ $REPLY =~ ^[Yy]$ ]]; then
+		secrets_out="true"
+ 	fi
+ 	echo
+ 	echo
+
+	if [[ "$OS" == "macOS" ]]; then
+
+		echo "Execute the following in Terminal to activate the selected profile"
+		echo "(it's already on your clipboard; just paste it and press [ENTER]):"
 		echo
 		echo "export AWS_PROFILE=${final_selection}"
-		echo
-		echo -n "export AWS_PROFILE=${final_selection}" | pbcopy
-		echo "(the activation command is now on your clipboard -- just paste in Terminal, and press [ENTER])"
-	elif [ "$OS" = "Linux" ]; then
-		echo "Execute the following on the command line to activate this profile:"
-		echo
-		echo "export AWS_PROFILE=${final_selection}"
-		echo
-		if exists xclip ; then
-			echo -n "export AWS_PROFILE=${final_selection}" | xclip -i
-			echo "(xclip found; the activation command is now on your X PRIMARY clipboard -- just paste on the command line, and press [ENTER])"
+
+		if [[ "$secrets_out" == "false" ]]; then
+			echo "unset AWS_ACCESS_KEY_ID"
+			echo "unset AWS_SECRET_ACCESS_KEY"
+			echo "unset AWS_SESSION_TOKEN"
+			echo -n "export AWS_PROFILE=${final_selection}; unset AWS_ACCESS_KEY_ID; unset AWS_SECRET_ACCESS_KEY; unset AWS_SESSION_TOKEN" | pbcopy
 		else
+			echo "export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}"
+			echo "export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"
+			if [[ "$mfaprofile" == "true" ]]; then
+				echo "export AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}"
+				echo -n "export AWS_PROFILE=${final_selection}; export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}; export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}; export AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}" | pbcopy
+			else
+				echo "unset AWS_SESSION_TOKEN"
+				echo -n "export AWS_PROFILE=${final_selection}; export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}; export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}; unset AWS_SESSION_TOKEN" | pbcopy
+				echo
+			fi
+		fi
+		echo
+		echo "NOTE: Make sure to set/unset the environment with the new values as instructed above!"
+
+	elif [ "$OS" == "Linux" ]; then
+		echo "Execute the following on the command line to activate this profile for the 'aws', 's3cmd', etc. commands."
+		echo "NOTE: Even if you only use a named profile ('AWS_PROFILE'), it's important to execute all of the export/unset"
+		echo "      commands to make sure previously set environment variables won't override the selected configuration."
+		echo
+		echo "export AWS_PROFILE=${final_selection}"
+		echo "export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}"
+		echo "export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}"
+		if [[ "$mfaprofile" == "true" ]]; then
+			echo "export AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}"
+			if exists xclip ; then
+				echo -n "export AWS_PROFILE=${final_selection}; export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}; export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}; export AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}" | xclip -i
+				echo "(xclip found; the activation command is now on your X PRIMARY clipboard -- just paste on the command line, and press [ENTER])"
+			fi
+		else
+			echo "unset AWS_SESSION_TOKEN"
+			if exists xclip ; then
+				echo -n "export AWS_PROFILE=${final_selection}; export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}; export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}; unset AWS_SESSION_TOKEN" | xclip -i
+				echo "(xclip found; the activation command is now on your X PRIMARY clipboard -- just paste on the command line, and press [ENTER])"
+			fi
+		fi
+		if ! exists xclip ; then
+			echo
 			echo "If you're using an X GUI on Linux, install 'xclip' to have the activation command copied to the clipboard automatically."
 		fi
-	else
-		echo "Execute the following on the command line to activate this profile:"
 		echo
-		echo "export AWS_PROFILE=${final_selection}" 
+		echo ".. or execute the following to use named profile only, clearning any previoiusly set configuration variables:"
+		echo
+		echo "export AWS_PROFILE=${final_selection}; unset AWS_ACCESS_KEY_ID; unset AWS_SECRET_ACCESS_KEY; unset AWS_SESSION_TOKEN"
+		echo
+	else  # not macOS, not Linux, so some other weird OS like Windows..
+		echo "Execute the following on the command line to activate this profile for the 'aws', 's3cmd', etc. commands."
+		echo "NOTE: Even if you only use a named profile ('AWS_PROFILE'), it's important to execute all of the export/unset"
+		echo "      commands to make sure previously set environment variables won't override the selected configuration."
+		echo
+		echo "export AWS_PROFILE=${final_selection} \\"
+		echo "export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID} \\"
+		echo "export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY} \\"
+		if [[ "$mfaprofile" == "true" ]]; then
+			echo "export AWS_SESSION_TOKEN=${AWS_SESSION_TOKEN}"
+		else
+			echo "unset AWS_SESSION_TOKEN"
+		fi
+		echo
+		echo "..or execute the following to use named profile only, clearning any previoiusly set configuration variables:"
+		echo
+		echo "export AWS_PROFILE=${final_selection}; unset AWS_ACCESS_KEY_ID; unset AWS_SECRET_ACCESS_KEY; unset AWS_SESSION_TOKEN"
+		echo
+
 	fi
 	echo
 
