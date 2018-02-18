@@ -138,19 +138,19 @@ else
 		# only process if profile identifier is present,
 		# and if it's not a mfasession profile 
 		# (mfasession profiles have '-mfasession' postfix)
-		if [ "$profile_ident" != "" ] &&
-	     ! [[ "$profile_ident" =~ -mfasession$ ]]; then
+		if [[ "$profile_ident" != "" ]] &&
+			! [[ "$profile_ident" =~ -mfasession$ ]]; then
 
-	     	# store this profile ident
-	       	cred_profiles[$cred_profilecounter]=$profile_ident
+			# store this profile ident
+			cred_profiles[$cred_profilecounter]=$profile_ident
 
-	       	# store this profile region and output format
-	       	profile_region[$cred_profilecounter]=$(aws --profile $profile_ident configure get region)
-	       	profile_output[$cred_profilecounter]=$(aws --profile $profile_ident configure get output)
+			# store this profile region and output format
+			profile_region[$cred_profilecounter]=$(aws --profile $profile_ident configure get region)
+			profile_output[$cred_profilecounter]=$(aws --profile $profile_ident configure get output)
 
-	       	# get the user ARN; this should be always
-	       	# available for valid profiles
-	        user_arn="$(aws sts get-caller-identity --profile $profile_ident --output text --query 'Arn' 2>&1)"
+			# get the user ARN; this should be always
+			# available for valid profiles
+			user_arn="$(aws sts get-caller-identity --profile $profile_ident --output text --query 'Arn' 2>&1)"
 			if [[ "$user_arn" =~ ^arn:aws ]]; then
 				cred_profile_arn[$cred_profilecounter]=$user_arn
 			else
@@ -160,8 +160,8 @@ else
 
 			# get the actual username
 			# (may be different from the arbitrary profile ident)
-	        [[ "$user_arn" =~ ([^/]+)$ ]] &&
-		    profile_username="${BASH_REMATCH[1]}"
+			[[ "$user_arn" =~ ([^/]+)$ ]] &&
+				profile_username="${BASH_REMATCH[1]}"
 			if [[ "$profile_username" =~ error ]]; then
 				cred_profile_user[$cred_profilecounter]=""
 			else
@@ -233,15 +233,15 @@ else
 			# erase variables & increase iterator for the next iteration
 			mfa_arn=""
 			user_arn=""
-	        profile_ident=""
-	        profile_check=""
-	        profile_username=""
-	        mfa_profile_ident=""
-	        mfa_profile_check=""
+			profile_ident=""
+			profile_check=""
+			profile_username=""
+			mfa_profile_ident=""
+			mfa_profile_check=""
 
 			cred_profilecounter=$(($cred_profilecounter+1))
 
-	    fi
+		fi
 	done < $CREDFILE
 
 	# create the profile selections
@@ -262,7 +262,7 @@ else
 		echo "${ITER}: $i (${cred_profile_user[$SELECTR]}${mfa_notify})"
 
 		if [[ "${mfa_profile_status[$SELECTR]}" == "OK" ]] ||
-		   [[ "${mfa_profile_status[$SELECTR]}" == "LIMITED" ]]; then
+			[[ "${mfa_profile_status[$SELECTR]}" == "LIMITED" ]]; then
 			echo "${ITER}m: $i MFA profile in ${mfa_profile_status[$SELECTR]} status"
 		fi
 
@@ -282,33 +282,33 @@ else
 	read -r selprofile
 
 	# process the selection
-	if [ "$selprofile" != "" ]; then
+	if [[ "$selprofile" != "" ]]; then
 		# capture the numeric part of the selection
-	    [[ $selprofile =~ ^([[:digit:]]+) ]] &&
-	    selprofile_check="${BASH_REMATCH[1]}"
-	    if [ "$selprofile_check" != "" ]; then
+		[[ $selprofile =~ ^([[:digit:]]+) ]] &&
+			selprofile_check="${BASH_REMATCH[1]}"
+		if [[ "$selprofile_check" != "" ]]; then
 
-	    	# if the numeric selection was found, 
-	    	# translate it to the array index and validate
-	    	let actual_selprofile=${selprofile_check}-1
+			# if the numeric selection was found, 
+			# translate it to the array index and validate
+			let actual_selprofile=${selprofile_check}-1
 
-	    	profilecount=${#cred_profiles[@]}
-	    	if [[ $actual_selprofile -ge $profilecount ||
-	    		 $actual_selprofile -lt 0 ]]; then
-	    		# a selection outside of the existing range was specified
-	    		echo "There is no profile '${selprofile}'."
-	    		echo
-	    		exit 1
-	    	fi
+			profilecount=${#cred_profiles[@]}
+			if [[ $actual_selprofile -ge $profilecount ||
+				$actual_selprofile -lt 0 ]]; then
+				# a selection outside of the existing range was specified
+				echo "There is no profile '${selprofile}'."
+				echo
+				exit 1
+			fi
 
-	    	# was an existing MFA profile selected?
-		    [[ $selprofile =~ ^[[:digit:]]+(m)$ ]] &&
-	    	selprofile_mfa_check="${BASH_REMATCH[1]}"
+			# was an existing MFA profile selected?
+			[[ $selprofile =~ ^[[:digit:]]+(m)$ ]] &&
+				selprofile_mfa_check="${BASH_REMATCH[1]}"
 
-	    	# if this is an MFA profile, it must be in OK or LIMITED status to select
-		    if [[ "$selprofile_mfa_check" != "" &&
-		       ( "${mfa_profile_status[$actual_selprofile]}" == "OK" ||
-	  			 "${mfa_profile_status[$actual_selprofile]}" == "LIMITED" ) ]]; then
+			# if this is an MFA profile, it must be in OK or LIMITED status to select
+			if [[ "$selprofile_mfa_check" != "" &&
+				( "${mfa_profile_status[$actual_selprofile]}" == "OK" ||
+				"${mfa_profile_status[$actual_selprofile]}" == "LIMITED" ) ]]; then
 
 				# get the parent profile name
 				# transpose selection (starting from 1) to array index (starting from 0)
@@ -320,45 +320,45 @@ else
 				# this is used to determine whether to print MFA questions/details
 				mfaprofile="true"
 
-		        # this is used to determine whether to trigger a MFA request for a MFA profile
+				# this is used to determine whether to trigger a MFA request for a MFA profile
 				active_mfa="true"
 
-		    elif [[ "$selprofile_mfa_check" != "" &&
-		            "${mfa_profile_status[$actual_selprofile]}" == "" ]]; then
-		        # mfa ('m') profile was selected for a profile that no mfa profile exists
-	    		echo "There is no profile '${selprofile}'."
-	    		echo
-	    		exit 1	           
+			elif [[ "$selprofile_mfa_check" != "" &&
+				"${mfa_profile_status[$actual_selprofile]}" == "" ]]; then
+				# mfa ('m') profile was selected for a profile that no mfa profile exists
+				echo "There is no profile '${selprofile}'."
+				echo
+				exit 1
 
 			else
 				# a base profile was selected
-			    if [[ $selprofile =~ ^[[:digit:]]+$ ]]; then 
+				if [[ $selprofile =~ ^[[:digit:]]+$ ]]; then 
 					echo "SELECTED PROFILE: ${cred_profiles[$actual_selprofile]}"
-	 				final_selection="${cred_profiles[$actual_selprofile]}"
-	 			else
-	 				# non-acceptable characters were present in the selection
-		    		echo "There is no profile '${selprofile}'."
-		    		echo
-		    		exit 1	           
-	 			fi
-		    fi
-		    
-	   	else
-	   		# no numeric part in selection
-	   		echo "There is no profile '${selprofile}'."
-	   		echo
-	   		exit 1
-	    fi
-	else 
+					final_selection="${cred_profiles[$actual_selprofile]}"
+				else
+					# non-acceptable characters were present in the selection
+					echo "There is no profile '${selprofile}'."
+					echo
+					exit 1
+				fi
+			fi
+
+		else
+			# no numeric part in selection
+			echo "There is no profile '${selprofile}'."
+			echo
+			exit 1
+		fi
+	else
 		# empty selection
 		echo "There is no profile '${selprofile}'."
 		echo
 		exit 1
 	fi
 
-	# this is a MFA request (a MFA ARN exists but MFA is not active)
+	# this is an MFA request (an MFA ARN exists but the MFA is not active)
 	if [[ "${mfa_arns[$actual_selprofile]}" != "" &&
-		  "$active_mfa" == "false" ]]; then
+		"$active_mfa" == "false" ]]; then
 
 		# prompt for the MFA code
 		echo
@@ -367,7 +367,7 @@ else
 		
 		while :
 		do
-  			read mfacode
+			read mfacode
 			if ! [[ "$mfacode" =~ ^$ || "$mfacode" =~ [0-9]{6} ]]; then
 				echo "The MFA code must be exactly six digits, or blank to bypass."
 				continue
@@ -427,7 +427,7 @@ else
 			`aws --profile $AWS_2AUTH_PROFILE configure set aws_session_token "$AWS_SESSION_TOKEN"`
 
 			# Make sure the final selection profile name has '-mfasession' suffix
-			# (it's not present when going from base profile to MFA profile)
+			# (it's not present when going from a base profile to an MFA profile)
 			if ! [[ "$final_selection" =~ -mfasession$ ]]; then
 				final_selection="${final_selection}-mfasession"
 			fi
@@ -463,7 +463,7 @@ else
 	if [ "${get_output}" == "" ]; then
 		# retrieve parent profile output format if an MFA profile
 		if [[ "${profile_output[$actual_selprofile]}" != "" &&
-		      "${mfaprofile}" == "true" ]]; then
+			"${mfaprofile}" == "true" ]]; then
 			set_new_output=${profile_output[$actual_selprofile]}
 			echo "Output format had not been configured for the selected MFA profile; it has been set to same as the parent profile ('$set_new_output')."
 		fi
@@ -499,9 +499,9 @@ else
 	read -p "Do you want to export the selected profile's secrets to the environment (for s3cmd, etc)? - y[N] " -n 1 -r
 	if [[ $REPLY =~ ^[Yy]$ ]]; then
 		secrets_out="true"
- 	fi
- 	echo
- 	echo
+	fi
+	echo
+	echo
 
 	if [[ "$OS" == "macOS" ]]; then
 
@@ -528,7 +528,10 @@ else
 			fi
 		fi
 		echo
-		echo "NOTE: Make sure to set/unset the environment with the new values as instructed above!"
+		echo "NOTE: Make sure to set/unset the environment with the new values as instructed above to make sure no conflicting profile/secret remains in the envrionment!"
+		echo
+		echo -e "To conveniently remove any AWS profile/secret information from the environment, simply source the attached script, like so:\n'source ./source-to-clear-AWS-envvars.sh'"
+		echo
 
 	elif [ "$OS" == "Linux" ]; then
 		echo "Execute the following on the command line to activate this profile for the 'aws', 's3cmd', etc. commands."
@@ -560,6 +563,9 @@ else
 		echo
 		echo "export AWS_PROFILE=${final_selection}; unset AWS_ACCESS_KEY_ID; unset AWS_SECRET_ACCESS_KEY; unset AWS_SESSION_TOKEN"
 		echo
+		echo -e "To conveniently remove any AWS profile/secret information from the environment, simply source the attached script, like so:\n'source ./source-to-clear-AWS-envvars.sh'"
+		echo
+
 	else  # not macOS, not Linux, so some other weird OS like Windows..
 		echo "Execute the following on the command line to activate this profile for the 'aws', 's3cmd', etc. commands."
 		echo "NOTE: Even if you only use a named profile ('AWS_PROFILE'), it's important to execute all of the export/unset"
@@ -577,6 +583,8 @@ else
 		echo "..or execute the following to use named profile only, clearning any previoiusly set configuration variables:"
 		echo
 		echo "export AWS_PROFILE=${final_selection}; unset AWS_ACCESS_KEY_ID; unset AWS_SECRET_ACCESS_KEY; unset AWS_SESSION_TOKEN"
+		echo
+		echo -e "To conveniently remove any AWS profile/secret information from the environment, simply source the attached script, like so:\nsource ./source-to-clear-AWS-envvars.sh"
 		echo
 
 	fi
