@@ -457,6 +457,7 @@ else
 			echo "Region had not been configured for the selected profile; it has been set to the default region ('${default_region}')."
 		fi
 
+		get_region="${set_new_region}" 
 		`aws --profile $final_selection configure set region "${set_new_region}"`
 	fi
 
@@ -472,6 +473,7 @@ else
 			echo "Output format had not been configured for the selected profile; it has been set to the default output format ('${default_output}')."
 		fi
 
+		get_output="${set_new_output}"
 		`aws --profile $final_selection configure set output "${set_new_output}"`
 	fi
 
