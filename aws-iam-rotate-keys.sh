@@ -132,14 +132,26 @@ else
 
 			if [ ${cred_profile_arn[$cred_profilecounter]} != "INVALID" ]; then
 
-				key_status_array=(`aws iam list-access-keys --profile "$profile_ident" --output json --query AccessKeyMetadata[*].[Status,CreateDate,AccessKeyId] | grep -A2 ctive | awk -F\" '{print $2}'`)
+				key_status_array_input=`aws iam list-access-keys --profile "$profile_ident" --output json --query AccessKeyMetadata[*].[Status,CreateDate,AccessKeyId] 2>&1`
 
+				if [[ "${key_status_array_input}" =~ .*explicit[[:space:]]deny.* ]]; then
+					key_status_array[0]="Denied"
+					key_status_array[1]=""
+					key_status_array[2]=`aws --profile "$profile_ident" configure get aws_access_key_id`
+					cred_profile_arn[$cred_profilecounter]="DENIED" 
+				else
+					key_status_array=(`echo "${key_status_array_input}" | grep -A2 ctive | awk -F\" '{print $2}'`)
+				fi
+
+				# get the actual username (may be different from the arbitrary profile ident)
 				s_no=0
 				for s in ${key_status_array[@]}; do
-					if [[ "$s" == "Active" || "$s" == "Inactive" ]]; then
+					if [[ "$s" == "Active" || "$s" == "Denied" || "$s" == "Inactive" ]]; then
 
 						if [ "$s" == "Active" ]; then
 							statusword="  Active"
+						elif [ "$s" == "Denied" ]; then
+							statusword="INSUFFICIENT PRIVILEGES TO PROCESS THE KEY"
 						else
 							statusword="Inactive"
 						fi
@@ -147,10 +159,14 @@ else
 						let "s_no++"
 						kcd=`echo ${key_status_array[$s_no]} | sed 's/T/ /' | awk '{print $1}'`
 						let  keypos=${s_no}+1
-						if [ "$OS" = "macOS" ]; then
-							key_status_accumulator="   ${statusword} key ${key_status_array[$keypos]} is $(((`date -jf %Y-%m-%d $TODAY +%s` - `date -jf %Y-%m-%d $kcd +%s`)/86400)) days old\n${key_status_accumulator}"
+						if [ "$s" != "Denied" ]; then
+							if [ "$OS" = "macOS" ]; then
+								key_status_accumulator="   ${statusword} key ${key_status_array[$keypos]} is $(((`date -jf %Y-%m-%d $TODAY +%s` - `date -jf %Y-%m-%d $kcd +%s`)/86400)) days old\n${key_status_accumulator}"
+							else
+								key_status_accumulator="   ${statusword} key ${key_status_array[$keypos]} is $(((`date -d "$TODAY" "+%s"` - `date -d "$kcd" "+%s"`)/86400)) days old\n${key_status_accumulator}"
+							fi
 						else
-							key_status_accumulator="   ${statusword} key ${key_status_array[$keypos]} is $(((`date -d "$TODAY" "+%s"` - `date -d "$kcd" "+%s"`)/86400)) days old\n${key_status_accumulator}"
+							key_status_accumulator="   ${statusword} ${key_status_array[$keypos]}\n   Restrictive policy in effect.\n"
 						fi
 					else
 						let "s_no++"
@@ -232,6 +248,11 @@ else
 				if [ "${cred_profile_arn[$actual_selprofile]}" = "INVALID" ]; then
 					echo
 					echo "PROFILE \"${cred_profiles[$actual_selprofile]}\" HAS INVALID ACCESS KEYS. Cannot proceed."
+					echo
+					exit 1
+				elif [ "${cred_profile_arn[$actual_selprofile]}" = "DENIED" ]; then
+					echo
+					echo "PROFILE \"${cred_profiles[$actual_selprofile]}\" HAS INSUFFICIENT PRIVILEGES (restrictive policy in effect). Cannot proceed."
 					echo
 					exit 1
 				else
