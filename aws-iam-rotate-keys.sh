@@ -130,7 +130,7 @@ else
 			# get access keys & their ages for the profile
 			key_status_accumulator=""
 
-			if [ ${cred_profile_arn[$cred_profilecounter]} != "INVALID" ]; then
+			if [[ ${cred_profile_arn[$cred_profilecounter]} != "INVALID" ]]; then
 
 				key_status_array_input=`aws iam list-access-keys --profile "$profile_ident" --output json --query AccessKeyMetadata[*].[Status,CreateDate,AccessKeyId] 2>&1`
 
